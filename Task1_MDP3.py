@@ -18,7 +18,7 @@ class EnvError(Exception):
 class EnergyHubMDP:
     """
     Markov Decision Process environment for the Energy Hub problem.
-    
+    """
     # =============================================
     # Deliverable 1: MDP Formulation
     # =============================================
@@ -51,7 +51,6 @@ class EnergyHubMDP:
     # Cost Function c_t = g(x_t, u_t):
     # - grid_power = max(0, demand_t + p2h_t - wind_t - R_h2p * h2p_t)
     # - cost = price_t * grid_power + C_elzr * electrolyzer_status_t
-    """
     
     def __init__(self, data: Dict[str, Any]):
         """
