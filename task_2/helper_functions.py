@@ -2,8 +2,8 @@ import numpy as np
 from typing import Dict, List, Tuple, Any
 import pyomo.environ as pyo
 from sklearn.cluster import KMeans
-from DMUU.utils.WindProcess import wind_model
-from DMUU.utils.PriceProcess import price_model
+from utils.WindProcess import wind_model
+from utils.PriceProcess import price_model
 
 def scenario_generation(
     current_wind: float,

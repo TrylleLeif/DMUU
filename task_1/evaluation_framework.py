@@ -2,10 +2,10 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Callable
 
 # Import the necessary modules
-from DMUU.utils.data import get_fixed_data
-from DMUU.utils.WindProcess import wind_model
-from DMUU.utils.PriceProcess import price_model
-from DMUU.task_1.energy_hub_policies import dummy_policy
+from utils.data import get_fixed_data
+from utils.WindProcess import wind_model
+from utils.PriceProcess import price_model
+from task_1.energy_hub_policies import dummy_policy
 
 def create_experiments(
         num_experiments: int, 
