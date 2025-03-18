@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Any, Callable, Optional
 import random
 
-from data import get_fixed_data
-from WindProcess import wind_model
-from PriceProcess import price_model
+from DMUU.utils.data import get_fixed_data
+from DMUU.utils.WindProcess import wind_model
+from DMUU.utils.PriceProcess import price_model
 
 class EnvError(Exception):
     """Custom exception for environment errors."""
