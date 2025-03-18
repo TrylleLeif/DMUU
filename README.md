@@ -12,4 +12,5 @@ to activate venv:
 ```source .venv/bin/activate```
 
 to use poetry to add all needed packages (make sure you have poetry):
+
 ```poetry install```
