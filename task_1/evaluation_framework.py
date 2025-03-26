@@ -7,6 +7,12 @@ from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
 from task_1.energy_hub_policies import dummy_policy
 
+# ==============================================================
+# || Generate wind and price trajectories                     ||
+# || same as: task_0.helper_functions.generate_trajectories   ||
+# || but now extended to create experiments                   ||
+# ==============================================================
+
 def create_experiments(
         num_experiments: int, 
         data: Dict[str, Any]
@@ -17,13 +23,13 @@ def create_experiments(
     price_trajectories = np.zeros((num_experiments, num_timeslots))
     
     for e in range(num_experiments):
-        # Initialize first two values for each trajectory
+        # init first two values 
         wind_trajectories[e, 0] = data['target_mean_wind']
         wind_trajectories[e, 1] = data['target_mean_wind']
         price_trajectories[e, 0] = data['mean_price']
         price_trajectories[e, 1] = data['mean_price']
         
-        # Generate trajectories for the experiment
+        # Generate trajectories
         for t in range(2, num_timeslots):
             wind_trajectories[e, t] = wind_model(
                 wind_trajectories[e, t-1],
@@ -38,6 +44,10 @@ def create_experiments(
             )
     
     return list(range(num_experiments)), wind_trajectories, price_trajectories
+
+# ==============================================================
+# || Feasibility check function, checks all constraint        ||
+# ==============================================================
 
 def check_feasibility(
         electrolyzer_status: int,
@@ -56,7 +66,7 @@ def check_feasibility(
         hydrogen_capacity: float
     ) -> bool:
     # Check power balance: wind + grid + h2p - p2h >= demand
-    tolerance = 1e-9
+    tolerance = 1e-6 # added due because of no need for that strict equality
     if wind_power + p_grid + r_h2p * p_h2p - p_p2h < demand - tolerance:
         print(f"Power balance constraint violated: {wind_power + p_grid + r_h2p * p_h2p - p_p2h} < {demand}")
         return False
@@ -93,21 +103,30 @@ def check_feasibility(
     if electrolyzer_off == 1 and electrolyzer_status == 0:
         return False
 
-
-    # All constraints satisfied
+    # Jubiii, all constraints are satisfied
     return True
+
+# ==============================================================
+# || Evaluation policy function:                              ||    
+# || Insporation from Evaluation_framwork.py, @author: geots  ||
+# ==============================================================
 
 def evaluate_policy(
         policy: Callable,
+        data: Dict[str, Any],
+        expers: List[int],
+        wind_trajectories: np.ndarray,
+        price_trajectories: np.ndarray,
         num_experiments: int = 20,
-        verbose: bool = True
+        _debug: bool = True, 
     ) -> Tuple[float, Dict[str, Any]]:
     
+    #TODO: DELETE THIS
     # Load the fixed data
-    data = get_fixed_data()
+    #data = get_fixed_data()
     
     # Create experiments
-    expers, wind_trajectories, price_trajectories = create_experiments(num_experiments, data)
+    #expers, wind_trajectories, price_trajectories = create_experiments(num_experiments, data)
     
     # constants
     num_timeslots = data['num_timeslots']
@@ -129,18 +148,19 @@ def evaluate_policy(
     electrolyzer_on_history = np.full((num_experiments, num_timeslots), np.nan) 
     electrolyzer_off_history = np.full((num_experiments, num_timeslots), np.nan) 
 
-    # Set initial conditions for all experiments
+    # initial conditions need to be set to zero for all experiments
     for e in expers:
         hydrogen_storage[e, 0] = 0
         electrolyzer_status_history[e, 0] = 0
-    
+
+    # for each experiment
     for e in expers:
-        if verbose and e % 5 == 0:
+        if _debug and e % 5 == 0:
             print(f"Processing experiment {e}...")
         
-        # Simulate through all timeslots
+        # and for each timeslot of the horizon
         for t in range(num_timeslots):
-            # Capture current state for policy decision
+            # Current state for policy decision
             current_electrolyzer_status = electrolyzer_status_history[e, t]
             current_hydrogen_level = hydrogen_storage[e, t]
             current_wind_power = wind_trajectories[e, t]
@@ -190,36 +210,40 @@ def evaluate_policy(
                 )
             
 
-            # Calculate the cost for this timeslot based on grid usage and electrolyzer operation
+            # Calculate the cost for this timeslot (objective function)
             cost = current_grid_price * p_grid + electrolyzer_cost * current_electrolyzer_status
-            policy_cost[e, t] = cost
+            policy_cost[e, t-1] = cost
             
+            # ======================================
+            # || Note:                            ||
+            # || Next part is to update the state ||
+            # || based on the decision made       ||
+            # ======================================
+
             # Determine the next electrolyzer status based on switching decisions
             # The status transitions from 0->1 if ON=1, from 1->0 if OFF=1, otherwise stays the same
             next_electrolyzer_status = current_electrolyzer_status + electrolyzer_on - electrolyzer_off # works because electrolyzer_on and electrolyzer_off are mutually exclusive in feasibility check
             
-            # Update hydrogen storage based on power-to-hydrogen conversion and hydrogen-to-power usage
+            # Update hydrogen storage based on p2h conversion and h2p usage
             next_hydrogen_level = current_hydrogen_level + r_p2h * p_p2h - p_h2p
-            next_hydrogen_level = min(max(0, next_hydrogen_level), hydrogen_capacity)  # Enforce physical limits
-            
+            next_hydrogen_level = min(max(0, next_hydrogen_level), hydrogen_capacity)
+        
             # Store the updated state for the next timeslot
             hydrogen_storage[e, t+1] = next_hydrogen_level
             electrolyzer_status_history[e, t+1] = next_electrolyzer_status
             
-            # Store decision history for analysis
+            # history for debug/analysis
             p_grid_history[e, t] = p_grid
             p_p2h_history[e, t] = p_p2h
             p_h2p_history[e, t] = p_h2p
             electrolyzer_on_history[e, t] = electrolyzer_on
             electrolyzer_off_history[e, t] = electrolyzer_off
     
-    # Calculate the total cost for each experiment
+    # Calculate the total cost for each experiment and the average cost
     total_costs = np.sum(policy_cost, axis=1)
-    
-    # Calculate the average cost across all experiments to measure policy performance
     average_cost = np.mean(total_costs)
     
-    if verbose:
+    if _debug:
         print(f"Average policy cost: {average_cost:.2f}")
         print(f"Min cost: {np.min(total_costs):.2f}, Max cost: {np.max(total_costs):.2f}")
     
@@ -228,8 +252,8 @@ def evaluate_policy(
         'policy_cost': policy_cost,
         'hydrogen_storage': hydrogen_storage,
         'electrolyzer_status': electrolyzer_status_history,
-        'electrolyzer_on': electrolyzer_on_history,  # Added to return history
-        'electrolyzer_off': electrolyzer_off_history,  # Added to return history
+        'electrolyzer_on': electrolyzer_on_history, 
+        'electrolyzer_off': electrolyzer_off_history, 
         'p_grid': p_grid_history,
         'p_p2h': p_p2h_history,
         'p_h2p': p_h2p_history,
