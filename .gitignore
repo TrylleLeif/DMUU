@@ -23,5 +23,5 @@ build/
 Thumbs.db
 
 # Ignore Python specific files
-__pycache__/
+*__pycache__/*
 *.pyc
