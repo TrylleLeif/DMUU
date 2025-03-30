@@ -21,3 +21,7 @@ build/
 # Ignore OS specific files
 .DS_Store
 Thumbs.db
+
+# Ignore Python specific files
+__pycache__/
+*.pyc
