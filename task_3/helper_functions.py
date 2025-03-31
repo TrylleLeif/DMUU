@@ -1,6 +1,12 @@
 import numpy as np
 from typing import Dict, List, Tuple, Any
+import sys, os, random
 import matplotlib.pyplot as plt
+# Add the project root directory to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+
+
 from utils.data import get_fixed_data
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
