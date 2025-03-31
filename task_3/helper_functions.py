@@ -155,7 +155,7 @@ def visualize_policy_decisions(results: Dict[str, Any], experiment_index: int = 
     ax3.legend(loc='upper right')
     
     plt.tight_layout()
-    plt.savefig('policy_decisions.png')
+    #plt.savefig('policy_decisions.png')
     plt.show()
 
 
@@ -182,7 +182,7 @@ def calculate_feature_importance(theta: np.ndarray):
     plt.title('Feature Importance in Value Function Approximation')
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig('feature_importance.png')
+    #plt.savefig('feature_importance.png')
     plt.show()
     
     # Print numerical values
@@ -237,7 +237,7 @@ def generate_value_function_heatmap(theta: np.ndarray, data: Dict[str, Any]):
     plt.ylabel('Electricity Price')
     plt.title('Value Function Heatmap (Wind = {:.2f}, Electrolyzer Status = {})'.format(wind, status))
     plt.tight_layout()
-    plt.savefig('value_function_heatmap.png')
+    #plt.savefig('value_function_heatmap.png')
     plt.show()
 
 
@@ -278,7 +278,7 @@ def compare_adp_with_stochastic_programming(adp_results: Dict[str, Any], sp_resu
     
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
-    plt.savefig('adp_vs_sp_comparison.png')
+    #plt.savefig('adp_vs_sp_comparison.png')
     plt.show()
     
     # Print detailed comparison
@@ -359,7 +359,7 @@ def analyze_decision_patterns(results: Dict[str, Any], experiment_index: int = 0
     ax2.grid(alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('decision_pattern_analysis.png')
+    #plt.savefig('decision_pattern_analysis.png')
     plt.show()
 
 
