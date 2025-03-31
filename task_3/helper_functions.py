@@ -374,7 +374,7 @@ def evaluate_theta_performance(data: Dict[str, Any], theta: np.ndarray) -> Dict[
     Returns:
         Dict: Performance metrics
     """
-    from adp_implementation import predict_value
+    from task_3.task3_6 import predict_value
     
     # Generate test states
     num_test_states = 1000
