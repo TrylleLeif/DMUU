@@ -48,8 +48,8 @@ def plot_experiment_results(results, experiment_index, data):
     ax4.legend()
     
     plt.tight_layout()
-    plt.savefig(f'{experiment_index}_results.png')
-    plt.close()
+    #plt.savefig(f'{experiment_index}_results.png')
+    #plt.close()
 
 
 def plot_cost_histogram(results, policy_name):
@@ -61,8 +61,8 @@ def plot_cost_histogram(results, policy_name):
     plt.xlabel('Total Cost')
     plt.ylabel('Frequency')
     plt.grid(True, alpha=0.3)
-    plt.savefig(f'{policy_name.replace(" ", "_").lower()}_cost_histogram.png')
-    plt.close()
+    #plt.savefig(f'{policy_name.replace(" ", "_").lower()}_cost_histogram.png')
+    #plt.close()
 
 
 def compare_policies(policy_results):
@@ -91,8 +91,8 @@ def compare_policies(policy_results):
     plt.title('Policy Comparison: Average Total Cost (Lower is Better)')
     plt.tight_layout()
     plt.grid(True, axis='y', alpha=0.3)
-    plt.savefig('policy_comparison.png')
-    plt.close()
+    #plt.savefig('policy_comparison.png')
+    #plt.close()
     
     # Print comparison table
     print("\n----- Policy Comparison -----")
@@ -125,8 +125,8 @@ def plot_feature_importance(theta):
     plt.title('Feature Importance in Value Function Approximation')
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig('feature_importance.png')
-    plt.close()
+    #plt.savefig('feature_importance.png')
+    #plt.close()
     
     # Print numerical values
     print("\n----- Feature Importance -----")
