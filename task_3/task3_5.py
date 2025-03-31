@@ -94,12 +94,12 @@ def train_vfa():
     num_timeslots = data['num_timeslots']
     
     # Initialize theta with feature dimensionality
-    theta = np.zeros(10)
+    theta = np.zeros(len(extract_features((0, 0, 0, 0))))  # Adjusted to match feature size
     
     print("Starting VFA training...")
     
     # Backward Value Function Approximation
-    for t in range(num_timeslots-2, -1, -1):
+    for t in range(num_timeslots-2, -1, -1): # Start from, end by, increment step length
         if t % 5 == 0:
             print(f"Training time period {t}")
         
@@ -203,7 +203,7 @@ def make_decision(t, electrolyzer_status, hydrogen_level, wind_power, grid_price
     state = (grid_price, wind_power, hydrogen_level, electrolyzer_status)
     
     # Generate decision options
-    grid_powers = [0, 2, 4, 6, 8]  # Added more grid power options
+    grid_powers = [0, 2, 4]  # Added more grid power options
     h2p_values = [0, 1, 2] if hydrogen_level >= 2 else ([0, 1] if hydrogen_level >= 1 else [0])
     p2h_values = [0, 2, 4] if electrolyzer_status == 1 else [0]
     
@@ -361,7 +361,7 @@ def make_decision(t, electrolyzer_status, hydrogen_level, wind_power, grid_price
     return best_elec_on, best_elec_off, best_grid, best_p2h, best_h2p
 
 def adp_policy(t, electrolyzer_status, hydrogen_level, wind_power, grid_price, demand, data):
-    """Main policy function - provides decisions for energy hub management"""
+
     global TRAINED_THETA
     
     # Train theta if not already trained
