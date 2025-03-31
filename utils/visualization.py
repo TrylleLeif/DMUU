@@ -143,28 +143,27 @@ def compare_policies(
     policy_results: Dict[str, Dict[str, Any]],
 ) -> None:
     """
-    Compares the costs of multiple policies and saves to file.
+    Compares the costs of multiple policies using boxplots.
     
     Args:
         policy_results: Dictionary mapping policy names to their results
     """
     plt.figure(figsize=(12, 6))
     
-    means = []
+    data = []
     names = []
     
     for name, results in policy_results.items():
-        means.append(np.mean(results['total_costs']))
+        data.append(results['total_costs'])
         names.append(name)
     
-    plt.bar(names, means, alpha=0.7, color='skyblue', edgecolor='black')
-    plt.title('Average Cost Comparison Between Policies')
-    plt.xlabel('Policy')
-    plt.ylabel('Average Cost')
-    plt.grid(True, alpha=0.3, axis='y')
+    plt.boxplot(data, labels=names, patch_artist=True, 
+                boxprops=dict(facecolor='skyblue', color='black'),
+                medianprops=dict(color='red'))
     
-    # Add the values on top of each bar
-    for i, v in enumerate(means):
-        plt.text(i, v + 0.5, f'{v:.2f}', ha='center')
+    plt.title('Cost Distribution Comparison Between Policies')
+    plt.xlabel('Policy')
+    plt.ylabel('Total Cost')
+    plt.grid(True, alpha=0.3, axis='y')
     
     plt.show()

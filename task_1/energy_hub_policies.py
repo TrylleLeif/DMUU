@@ -8,7 +8,9 @@ def dummy_policy(
     wind_power: float,
     grid_price: float,
     demand: float,
-    data: Dict[str, Any]
+    data: Dict[str, Any],
+    previous_wind=None,
+    previous_price=None
 ) -> Tuple[int, float, float, float]:
 
     electrolyzer_on = 0
