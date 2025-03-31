@@ -325,7 +325,7 @@ def make_decision(t, electrolyzer_status, hydrogen_level, wind_power, grid_price
                     immediate_cost = calculate_immediate_cost(
                         grid_price, wind_power, hydrogen_level, grid_power, h2p, 0, elec, data, t
                     )
-                    
+                    # Skip infeasible solutions
                     if immediate_cost >= 1000:
                         continue
                     
