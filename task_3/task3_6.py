@@ -7,6 +7,10 @@ import numpy as np
 from utils.data import get_fixed_data
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
+from task_3.helper_functions import (
+    check_feasibility,
+    sample_representative_states,
+    add_critical_region_samples)
 
 # Global variable to store trained parameters
 TRAINED_THETA = None
@@ -53,132 +57,6 @@ def calculate_next_hydrogen(hydrogen, h2p, p2h, data): # CHECK
     next_hydrogen = hydrogen - h_used + h_produced
     next_hydrogen = max(0, min(next_hydrogen, data['hydrogen_capacity']))
     return next_hydrogen
-
-# CHECK
-def check_feasibility(electrolyzer_status, electrolyzer_on, electrolyzer_off, p_grid, p_p2h, p_h2p, hydrogen_level, wind_power, demand, data):
- 
-    tolerance = 1e-9
-    
-    # Get conversion rates and capacities from data
-    r_p2h = data['conversion_p2h']  # Efficiency of converting power to hydrogen
-    r_h2p = data['conversion_h2p']  # Efficiency of converting hydrogen to power
-    p2h_max_rate = data['p2h_max_rate']  # Maximum P2H rate
-    h2p_max_rate = data['h2p_max_rate']  # Maximum H2P rate
-    hydrogen_capacity = data['hydrogen_capacity']  # Maximum hydrogen storage
-    
-    # Calculate next electrolyzer status based on switching decisions
-    next_status = electrolyzer_status + electrolyzer_on - electrolyzer_off
-    
-    # Check power balance: wind + grid + h2p - p2h >= demand
-    if wind_power + p_grid + r_h2p * p_h2p - p_p2h < demand - tolerance:
-        return False, f"Power balance constraint violated: {wind_power + p_grid + r_h2p * p_h2p - p_p2h} < {demand}"
-    
-    # Check power-to-hydrogen limit: p_p2h <= P2H * next_status
-    if p_p2h > p2h_max_rate * next_status:
-        return False, f"P2H limit constraint violated: {p_p2h} > {p2h_max_rate * next_status}"
-    
-    # Check hydrogen-to-power limit: p_h2p <= H2P
-    if p_h2p > h2p_max_rate:
-        return False, f"H2P limit constraint violated: {p_h2p} > {h2p_max_rate}"
-    
-    # Check hydrogen level doesn't exceed capacity
-    next_hydrogen = calculate_next_hydrogen(hydrogen_level, p_h2p, p_p2h, data)
-    if next_hydrogen > hydrogen_capacity:
-        return False, f"Hydrogen capacity constraint violated: {next_hydrogen} > {hydrogen_capacity}"
-    
-    # Check if there's enough hydrogen for conversion to power
-    if p_h2p > hydrogen_level:
-        return False, f"Hydrogen availability constraint violated: {p_h2p} > {hydrogen_level}"
-    
-    # Check that at most one switching action happens
-    if electrolyzer_on + electrolyzer_off > 1:
-        return False, "Multiple switching actions constraint violated"
-    
-    # Check that you can only switch ON if it's currently OFF
-    if electrolyzer_on == 1 and electrolyzer_status == 1:
-        return False, "Invalid ON action: electrolyzer is already ON"
-    
-    # Check that you can only switch OFF if it's currently ON
-    if electrolyzer_off == 1 and electrolyzer_status == 0:
-        return False, "Invalid OFF action: electrolyzer is already OFF"
-    
-    # All constraints satisfied
-    return True, ""
-
-def sample_representative_states(data, num_samples=50): # CHECK
-    states = []
-    
-    # Stratify by price levels
-    price_ranges = [
-        (data['price_floor'], data['mean_price'] * 0.8),                    # Low prices
-        (data['mean_price'] * 0.8, data['mean_price'] * 1.2),               # Medium prices
-        (data['mean_price'] * 1.2, data['price_cap'])                       # High prices
-    ]
-    
-    # Stratify by wind levels
-    wind_ranges = [
-        (0, data['target_mean_wind'] * 0.5),                                # Low wind
-        (data['target_mean_wind'] * 0.5, data['target_mean_wind'] * 1.5),   # Medium wind
-        (data['target_mean_wind'] * 1.5, 10)                                # High wind
-    ]
-    
-    # Stratify by hydrogen storage levels
-    hydrogen_ranges = [
-        (0, data['hydrogen_capacity'] * 0.3),                               # Low storage
-        (data['hydrogen_capacity'] * 0.3, data['hydrogen_capacity'] * 0.7), # Medium storage
-        (data['hydrogen_capacity'] * 0.7, data['hydrogen_capacity'])        # High storage
-    ]
-    
-    # Allocate samples across all strata
-    samples_per_combination = max(1, num_samples // (len(price_ranges) * len(wind_ranges) * len(hydrogen_ranges) * 2))
-    
-    for price_range in price_ranges:
-        for wind_range in wind_ranges:
-            for hydrogen_range in hydrogen_ranges:
-                for status in [0, 1]:  # Electrolyzer status
-                    for _ in range(samples_per_combination):
-                        price = np.random.uniform(price_range[0], price_range[1])
-                        wind = np.random.uniform(wind_range[0], wind_range[1])
-                        hydrogen = np.random.uniform(hydrogen_range[0], hydrogen_range[1])
-                        
-                        states.append((price, wind, hydrogen, status))
-    
-    # If we need more samples to reach the target number, add them randomly
-    while len(states) < num_samples:
-        price = np.random.uniform(data['price_floor'], data['price_cap'])
-        wind = np.random.uniform(0, 10)
-        hydrogen = np.random.uniform(0, data['hydrogen_capacity'])
-        status = np.random.choice([0, 1])
-        states.append((price, wind, hydrogen, status))
-    
-    return states
-
-def add_critical_region_samples(states, data, num_extra=20): # CHECK
-    # Add extra samples for price arbitrage opportunities (low prices with empty storage)
-    for _ in range(num_extra // 4):
-        price = np.random.uniform(data['price_floor'], data['mean_price'] * 0.6)  # Low price
-        wind = np.random.uniform(data['target_mean_wind'] * 0.8, data['target_mean_wind'] * 1.5)  # Medium-high wind
-        hydrogen = np.random.uniform(0, data['hydrogen_capacity'] * 0.3)  # Low hydrogen
-        status = 1  # Electrolyzer on
-        states.append((price, wind, hydrogen, status))
-    
-    # Add extra samples for hydrogen utilization opportunities (high prices with full storage)
-    for _ in range(num_extra // 4):
-        price = np.random.uniform(data['mean_price'] * 1.4, data['price_cap'])  # High price
-        wind = np.random.uniform(0, data['target_mean_wind'] * 0.7)  # Low wind
-        hydrogen = np.random.uniform(data['hydrogen_capacity'] * 0.7, data['hydrogen_capacity'])  # High hydrogen
-        status = np.random.choice([0, 1])  # Either status
-        states.append((price, wind, hydrogen, status))
-    
-    # Add extra samples for electrolyzer switching decisions (medium hydrogen, medium price)
-    for _ in range(num_extra // 2):
-        price = np.random.uniform(data['mean_price'] * 0.9, data['mean_price'] * 1.1)  # Medium price
-        wind = np.random.uniform(data['target_mean_wind'] * 0.7, data['target_mean_wind'] * 1.3)  # Medium wind
-        hydrogen = np.random.uniform(data['hydrogen_capacity'] * 0.4, data['hydrogen_capacity'] * 0.6)  # Medium hydrogen
-        status = np.random.choice([0, 1])  # Either status
-        states.append((price, wind, hydrogen, status))
-    
-    return states
 
 def train_vfa():
     """Train the Value Function Approximation"""

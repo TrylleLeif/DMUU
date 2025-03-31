@@ -50,6 +50,132 @@ def generate_trajectories(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]
     
     return wind_trajectory, price_trajectory
 
+# CHECK
+def check_feasibility(electrolyzer_status, electrolyzer_on, electrolyzer_off, p_grid, p_p2h, p_h2p, hydrogen_level, wind_power, demand, data):
+ 
+    tolerance = 1e-9
+    
+    # Get conversion rates and capacities from data
+    r_p2h = data['conversion_p2h']  # Efficiency of converting power to hydrogen
+    r_h2p = data['conversion_h2p']  # Efficiency of converting hydrogen to power
+    p2h_max_rate = data['p2h_max_rate']  # Maximum P2H rate
+    h2p_max_rate = data['h2p_max_rate']  # Maximum H2P rate
+    hydrogen_capacity = data['hydrogen_capacity']  # Maximum hydrogen storage
+    
+    # Calculate next electrolyzer status based on switching decisions
+    next_status = electrolyzer_status + electrolyzer_on - electrolyzer_off
+    
+    # Check power balance: wind + grid + h2p - p2h >= demand
+    if wind_power + p_grid + r_h2p * p_h2p - p_p2h < demand - tolerance:
+        return False, f"Power balance constraint violated: {wind_power + p_grid + r_h2p * p_h2p - p_p2h} < {demand}"
+    
+    # Check power-to-hydrogen limit: p_p2h <= P2H * next_status
+    if p_p2h > p2h_max_rate * next_status:
+        return False, f"P2H limit constraint violated: {p_p2h} > {p2h_max_rate * next_status}"
+    
+    # Check hydrogen-to-power limit: p_h2p <= H2P
+    if p_h2p > h2p_max_rate:
+        return False, f"H2P limit constraint violated: {p_h2p} > {h2p_max_rate}"
+    
+    # Check hydrogen level doesn't exceed capacity
+    next_hydrogen = calculate_next_hydrogen(hydrogen_level, p_h2p, p_p2h, data)
+    if next_hydrogen > hydrogen_capacity:
+        return False, f"Hydrogen capacity constraint violated: {next_hydrogen} > {hydrogen_capacity}"
+    
+    # Check if there's enough hydrogen for conversion to power
+    if p_h2p > hydrogen_level:
+        return False, f"Hydrogen availability constraint violated: {p_h2p} > {hydrogen_level}"
+    
+    # Check that at most one switching action happens
+    if electrolyzer_on + electrolyzer_off > 1:
+        return False, "Multiple switching actions constraint violated"
+    
+    # Check that you can only switch ON if it's currently OFF
+    if electrolyzer_on == 1 and electrolyzer_status == 1:
+        return False, "Invalid ON action: electrolyzer is already ON"
+    
+    # Check that you can only switch OFF if it's currently ON
+    if electrolyzer_off == 1 and electrolyzer_status == 0:
+        return False, "Invalid OFF action: electrolyzer is already OFF"
+    
+    # All constraints satisfied
+    return True, ""
+
+def sample_representative_states(data, num_samples=50): # CHECK
+    states = []
+    
+    # Stratify by price levels
+    price_ranges = [
+        (data['price_floor'], data['mean_price'] * 0.8),                    # Low prices
+        (data['mean_price'] * 0.8, data['mean_price'] * 1.2),               # Medium prices
+        (data['mean_price'] * 1.2, data['price_cap'])                       # High prices
+    ]
+    
+    # Stratify by wind levels
+    wind_ranges = [
+        (0, data['target_mean_wind'] * 0.5),                                # Low wind
+        (data['target_mean_wind'] * 0.5, data['target_mean_wind'] * 1.5),   # Medium wind
+        (data['target_mean_wind'] * 1.5, 10)                                # High wind
+    ]
+    
+    # Stratify by hydrogen storage levels
+    hydrogen_ranges = [
+        (0, data['hydrogen_capacity'] * 0.3),                               # Low storage
+        (data['hydrogen_capacity'] * 0.3, data['hydrogen_capacity'] * 0.7), # Medium storage
+        (data['hydrogen_capacity'] * 0.7, data['hydrogen_capacity'])        # High storage
+    ]
+    
+    # Allocate samples across all strata
+    samples_per_combination = max(1, num_samples // (len(price_ranges) * len(wind_ranges) * len(hydrogen_ranges) * 2))
+    
+    for price_range in price_ranges:
+        for wind_range in wind_ranges:
+            for hydrogen_range in hydrogen_ranges:
+                for status in [0, 1]:  # Electrolyzer status
+                    for _ in range(samples_per_combination):
+                        price = np.random.uniform(price_range[0], price_range[1])
+                        wind = np.random.uniform(wind_range[0], wind_range[1])
+                        hydrogen = np.random.uniform(hydrogen_range[0], hydrogen_range[1])
+                        
+                        states.append((price, wind, hydrogen, status))
+    
+    # If we need more samples to reach the target number, add them randomly
+    while len(states) < num_samples:
+        price = np.random.uniform(data['price_floor'], data['price_cap'])
+        wind = np.random.uniform(0, 10)
+        hydrogen = np.random.uniform(0, data['hydrogen_capacity'])
+        status = np.random.choice([0, 1])
+        states.append((price, wind, hydrogen, status))
+    
+    return states
+
+def add_critical_region_samples(states, data, num_extra=20): # CHECK
+    # Add extra samples for price arbitrage opportunities (low prices with empty storage)
+    for _ in range(num_extra // 4):
+        price = np.random.uniform(data['price_floor'], data['mean_price'] * 0.6)  # Low price
+        wind = np.random.uniform(data['target_mean_wind'] * 0.8, data['target_mean_wind'] * 1.5)  # Medium-high wind
+        hydrogen = np.random.uniform(0, data['hydrogen_capacity'] * 0.3)  # Low hydrogen
+        status = 1  # Electrolyzer on
+        states.append((price, wind, hydrogen, status))
+    
+    # Add extra samples for hydrogen utilization opportunities (high prices with full storage)
+    for _ in range(num_extra // 4):
+        price = np.random.uniform(data['mean_price'] * 1.4, data['price_cap'])  # High price
+        wind = np.random.uniform(0, data['target_mean_wind'] * 0.7)  # Low wind
+        hydrogen = np.random.uniform(data['hydrogen_capacity'] * 0.7, data['hydrogen_capacity'])  # High hydrogen
+        status = np.random.choice([0, 1])  # Either status
+        states.append((price, wind, hydrogen, status))
+    
+    # Add extra samples for electrolyzer switching decisions (medium hydrogen, medium price)
+    for _ in range(num_extra // 2):
+        price = np.random.uniform(data['mean_price'] * 0.9, data['mean_price'] * 1.1)  # Medium price
+        wind = np.random.uniform(data['target_mean_wind'] * 0.7, data['target_mean_wind'] * 1.3)  # Medium wind
+        hydrogen = np.random.uniform(data['hydrogen_capacity'] * 0.4, data['hydrogen_capacity'] * 0.6)  # Medium hydrogen
+        status = np.random.choice([0, 1])  # Either status
+        states.append((price, wind, hydrogen, status))
+    
+    return states
+
 
 def generate_next_states(
     current_wind: float, 
@@ -80,35 +206,6 @@ def generate_next_states(
         next_price_samples[i] = next_price
     
     return next_wind_samples, next_price_samples
-
-
-def sample_state_space(
-    data: Dict[str, Any], 
-    num_samples: int = 10
-) -> List[Tuple[float, float, float, int]]:
-    """
-    Sample representative states from the state space for VFA training.
-    
-    Args:
-        data: Problem data dictionary
-        num_samples: Number of state samples to generate
-        
-    Returns:
-        List of state tuples: [(price, wind, hydrogen, electrolyzer_status), ...]
-    """
-    states = []
-    
-    # Sample price, wind, hydrogen and electrolyzer status
-    for _ in range(num_samples):
-        price = np.random.uniform(data['price_floor'], data['price_cap'])
-        wind = np.random.uniform(0, 10)  # Assuming wind range is 0-10
-        hydrogen = np.random.uniform(0, data['hydrogen_capacity'])
-        status = np.random.choice([0, 1])
-        
-        states.append((price, wind, hydrogen, status))
-    
-    return states
-
 
 def visualize_policy_decisions(results: Dict[str, Any], experiment_index: int = 0):
     """
@@ -189,179 +286,6 @@ def calculate_feature_importance(theta: np.ndarray):
     print("Feature Importance:")
     for name, imp in zip(feature_names, normalized_importance):
         print(f"{name}: {imp:.4f}")
-
-
-def generate_value_function_heatmap(theta: np.ndarray, data: Dict[str, Any]):
-    """
-    Generate a heatmap visualization of the value function for different 
-    combinations of hydrogen storage and price, with fixed wind and electrolyzer status.
-    
-    Args:
-        theta: Trained parameter vector for value function approximation
-        data: Dictionary containing problem parameters
-    """
-    from matplotlib import cm
-    
-    # Fixed values for wind and electrolyzer status
-    wind = data['target_mean_wind']
-    status = 1  # Electrolyzer on
-    
-    # Grid for hydrogen and price
-    hydrogen_levels = np.linspace(0, data['hydrogen_capacity'], 20)
-    prices = np.linspace(data['price_floor'], data['price_cap'], 20)
-    
-    # Create meshgrid
-    H, P = np.meshgrid(hydrogen_levels, prices)
-    
-    # Calculate value function for each point
-    V = np.zeros_like(H)
-    for i in range(H.shape[0]):
-        for j in range(H.shape[1]):
-            state = (P[i, j], wind, H[i, j], status)
-            # Extract features for the value function
-            features = np.array([
-                1.0,                # Bias
-                P[i, j],            # Price
-                wind,               # Wind
-                H[i, j],            # Hydrogen
-                float(status),      # Electrolyzer status
-                H[i, j] * P[i, j]   # Interaction term
-            ])
-            V[i, j] = -np.dot(theta, features)  # Negative because we're minimizing cost
-    
-    # Create the heatmap
-    plt.figure(figsize=(12, 10))
-    contour = plt.contourf(H, P, V, 20, cmap=cm.viridis)
-    plt.colorbar(contour, label='Value Function')
-    plt.xlabel('Hydrogen Storage Level')
-    plt.ylabel('Electricity Price')
-    plt.title('Value Function Heatmap (Wind = {:.2f}, Electrolyzer Status = {})'.format(wind, status))
-    plt.tight_layout()
-    #plt.savefig('value_function_heatmap.png')
-    plt.show()
-
-
-def compare_adp_with_stochastic_programming(adp_results: Dict[str, Any], sp_results: Dict[str, Any]):
-    """
-    Compare the performance of ADP with Stochastic Programming approaches.
-    
-    Args:
-        adp_results: Results dictionary from ADP policy evaluation
-        sp_results: Results dictionary from SP policy evaluation
-    """
-    # Calculate statistics
-    adp_mean = np.mean(adp_results['total_costs'])
-    adp_std = np.std(adp_results['total_costs'])
-    adp_min = np.min(adp_results['total_costs'])
-    adp_max = np.max(adp_results['total_costs'])
-    
-    sp_mean = np.mean(sp_results['total_costs'])
-    sp_std = np.std(sp_results['total_costs'])
-    sp_min = np.min(sp_results['total_costs'])
-    sp_max = np.max(sp_results['total_costs'])
-    
-    # Create bar plot for mean costs
-    policies = ['ADP Policy', 'SP Policy']
-    means = [adp_mean, sp_mean]
-    stds = [adp_std, sp_std]
-    
-    plt.figure(figsize=(10, 6))
-    bars = plt.bar(policies, means, yerr=stds, capsize=10, color=['blue', 'orange'])
-    plt.ylabel('Average Cost')
-    plt.title('Policy Performance Comparison')
-    
-    # Add value labels
-    for bar in bars:
-        height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height + 5,
-                 f'{height:.2f}', ha='center', va='bottom')
-    
-    plt.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    #plt.savefig('adp_vs_sp_comparison.png')
-    plt.show()
-    
-    # Print detailed comparison
-    print("\n--- Policy Comparison ---")
-    print(f"{'Policy':<15} {'Mean Cost':<12} {'Std Dev':<12} {'Min Cost':<12} {'Max Cost':<12}")
-    print("-" * 65)
-    print(f"{'ADP Policy':<15} {adp_mean:<12.2f} {adp_std:<12.2f} {adp_min:<12.2f} {adp_max:<12.2f}")
-    print(f"{'SP Policy':<15} {sp_mean:<12.2f} {sp_std:<12.2f} {sp_min:<12.2f} {sp_max:<12.2f}")
-    print("-" * 65)
-    
-    # Calculate improvement percentage
-    if sp_mean > 0:
-        improvement = (sp_mean - adp_mean) / sp_mean * 100
-        if improvement > 0:
-            print(f"ADP outperforms SP by {improvement:.2f}%")
-        else:
-            print(f"SP outperforms ADP by {-improvement:.2f}%")
-
-
-def analyze_decision_patterns(results: Dict[str, Any], experiment_index: int = 0):
-    """
-    Analyze the decision patterns of the policy over time.
-    
-    Args:
-        results: Results dictionary from policy evaluation
-        experiment_index: Index of the experiment to analyze
-    """
-    # Time periods
-    num_periods = len(results['hydrogen_storage'][experiment_index]) - 1
-    periods = np.arange(num_periods)
-    
-    # Extract decision variables
-    electrolyzer_status = results['electrolyzer_status'][experiment_index, :-1]
-    p_grid = results['p_grid'][experiment_index]
-    p_p2h = results['p_p2h'][experiment_index]
-    p_h2p = results['p_h2p'][experiment_index]
-    
-    # Extract exogenous variables
-    wind = results['wind_trajectories'][experiment_index]
-    price = results['price_trajectories'][experiment_index]
-    
-    # Calculate correlations
-    corr_price_grid = np.corrcoef(price, p_grid)[0, 1]
-    corr_wind_grid = np.corrcoef(wind, p_grid)[0, 1]
-    corr_price_p2h = np.corrcoef(price, p_p2h)[0, 1]
-    corr_wind_p2h = np.corrcoef(wind, p_p2h)[0, 1]
-    
-    # Print correlations
-    print("\n--- Decision Pattern Analysis ---")
-    print(f"Correlation between price and grid power: {corr_price_grid:.4f}")
-    print(f"Correlation between wind and grid power: {corr_wind_grid:.4f}")
-    print(f"Correlation between price and P2H: {corr_price_p2h:.4f}")
-    print(f"Correlation between wind and P2H: {corr_wind_p2h:.4f}")
-    
-    # Plot the relationship between price, wind and decisions
-    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
-    
-    # Price vs decisions
-    ax1 = axes[0]
-    ax1.scatter(price, p_grid, alpha=0.7, c='blue', label='Grid Power')
-    ax1.scatter(price, p_p2h, alpha=0.7, c='green', label='P2H')
-    ax1.scatter(price, p_h2p, alpha=0.7, c='red', label='H2P')
-    ax1.set_xlabel('Price')
-    ax1.set_ylabel('Power')
-    ax1.set_title('Decisions vs Price')
-    ax1.legend()
-    ax1.grid(alpha=0.3)
-    
-    # Wind vs decisions
-    ax2 = axes[1]
-    ax2.scatter(wind, p_grid, alpha=0.7, c='blue', label='Grid Power')
-    ax2.scatter(wind, p_p2h, alpha=0.7, c='green', label='P2H')
-    ax2.scatter(wind, p_h2p, alpha=0.7, c='red', label='H2P')
-    ax2.set_xlabel('Wind Power')
-    ax2.set_ylabel('Power')
-    ax2.set_title('Decisions vs Wind')
-    ax2.legend()
-    ax2.grid(alpha=0.3)
-    
-    plt.tight_layout()
-    #plt.savefig('decision_pattern_analysis.png')
-    plt.show()
-
 
 def evaluate_theta_performance(data: Dict[str, Any], theta: np.ndarray) -> Dict[str, Any]:
     """
