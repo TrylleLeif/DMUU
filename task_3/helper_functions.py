@@ -11,43 +11,91 @@ from utils.data import get_fixed_data
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
 
-def generate_trajectories(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Generate a single trajectory of wind and price for policy execution.
+def sample_representative_state_pairs(num_experiments, data):
+
+    trajectories = []
     
-    Args:
-        data: Dictionary containing problem parameters
+    for e in range(num_experiments):
+        trajectory = []
         
-    Returns:
-        Tuple: (wind_trajectory, price_trajectory)
-    """
-    num_timeslots = data['num_timeslots']
+        # Initialize starting values
+        prev_wind = 4
+        curr_wind = 5
+        prev_price = 28
+        curr_price = 30
+        
+        # Store initial values as state pairs with random hydrogen and status
+        for t in range(2):
+            wind_val = 4 if t == 0 else 5
+            price_val = 28 if t == 0 else 30
+            # Sample endogenous state
+            h_storage = round(float(np.random.uniform(0, data['hydrogen_capacity'])), 2)
+            elzr_status = int(np.random.choice([0, 1]))
+            
+            # Create state pair
+            z_t = (wind_val, price_val)
+            y_t = (h_storage, elzr_status)
+            trajectory.append((z_t, y_t))
+        
+        # Generate trajectory for remaining time slots
+        for t in range(2, data['num_timeslots']):
+            # Get next wind and price values
+            next_wind = float(wind_model(curr_wind, prev_wind, data))
+            next_price = float(price_model(curr_price, prev_price, next_wind, data))
+            
+            # Round to 2 decimal places for cleaner output
+            next_wind = round(next_wind, 2)
+            next_price = round(next_price, 2)
+            
+            # Sample endogenous state
+            h_storage = round(float(np.random.uniform(0, data['hydrogen_capacity'])), 2)
+            elzr_status = int(np.random.choice([0, 1]))
+            
+            # Create state pair
+            z_t = (next_wind, next_price)
+            y_t = (h_storage, elzr_status)
+            trajectory.append((z_t, y_t))
+            
+            # Update values for next iteration
+            prev_wind = curr_wind
+            curr_wind = next_wind
+            prev_price = curr_price
+            curr_price = next_price
+        
+        trajectories.append(trajectory)
+
+    return trajectories
+
+def sample_K_next_exogenous_states(z_t, K, data):
+
+    curr_wind, curr_price = z_t
+    prev_wind = curr_wind + np.random.normal()
+    prev_price = curr_price + np.random.normal()
     
-    # Create arrays for trajectories
-    wind_trajectory = np.zeros(num_timeslots)
-    price_trajectory = np.zeros(num_timeslots)
+    z_plus_one_samples = []
     
-    # Initialize first two values
-    wind_trajectory[0] = data['target_mean_wind']
-    wind_trajectory[1] = data['target_mean_wind']
-    price_trajectory[0] = data['mean_price']
-    price_trajectory[1] = data['mean_price']
-    
-    # Generate the rest of the trajectory
-    for t in range(2, num_timeslots):
-        wind_trajectory[t] = wind_model(
-            wind_trajectory[t-1],
-            wind_trajectory[t-2],
-            data
-        )
-        price_trajectory[t] = price_model(
-            price_trajectory[t-1],
-            price_trajectory[t-2],
-            wind_trajectory[t],
-            data
-        )
-    
-    return wind_trajectory, price_trajectory
+    for _ in range(K):
+        # Calculate next wind and price
+        next_wind = float(wind_model(curr_wind, prev_wind, data))
+        next_price = float(price_model(curr_price, prev_price, next_wind, data))
+        
+        # Round to 2 decimal places for cleaner output
+        next_wind = round(next_wind, 2)
+        next_price = round(next_price, 2)
+        
+        # Sample random demand from demand schedule
+        t_mod = np.random.randint(0, len(data["demand_schedule"]))
+        next_demand = round(data["demand_schedule"][t_mod], 2)
+        
+        z_plus_one_samples.append((next_wind, next_price, next_demand))
+        
+        # Update values for next iteration
+        prev_wind = curr_wind
+        curr_wind = next_wind
+        prev_price = curr_price
+        curr_price = next_price
+        
+    return z_plus_one_samples
 
 def check_feasibility(
         electrolyzer_status: int,
@@ -68,27 +116,27 @@ def check_feasibility(
     # Check power balance: wind + grid + h2p - p2h >= demand
     tolerance = 1e-9
     if wind_power + p_grid + r_h2p * p_h2p - p_p2h < demand - tolerance:
-        print(f"Power balance constraint violated: {wind_power + p_grid + r_h2p * p_h2p - p_p2h} < {demand}")
+        #print(f"Power balance constraint violated: {wind_power + p_grid + r_h2p * p_h2p - p_p2h} < {demand}")
         return False
     
     # Check power-to-hydrogen limit: p_p2h <= P2H * x
     if p_p2h > p2h_max_rate * electrolyzer_status:
-        print(f"P2H limit constraint violated: {p_p2h} > {p2h_max_rate * electrolyzer_status}")
+        #print(f"P2H limit constraint violated: {p_p2h} > {p2h_max_rate * electrolyzer_status}")
         return False
     
     # Check hydrogen-to-power limit: p_h2p <= H2P
     if p_h2p > h2p_max_rate :
-        print(f"H2P limit constraint violated: {p_h2p} > {h2p_max_rate}")
+        #print(f"H2P limit constraint violated: {p_h2p} > {h2p_max_rate}")
         return False
     
     # Check hydrogen level doesn't exceed capacity
     if hydrogen_level > hydrogen_capacity:
-        print(f"Hydrogen capacity constraint violated: {hydrogen_level} > {hydrogen_capacity}")
+        #print(f"Hydrogen capacity constraint violated: {hydrogen_level} > {hydrogen_capacity}")
         return False
     
     # Check if there's enough hydrogen for conversion to power
     if p_h2p > hydrogen_level:
-        print(f"Hydrogen availability constraint violated: {p_h2p} > {hydrogen_level}")
+        #print(f"Hydrogen availability constraint violated: {p_h2p} > {hydrogen_level}")
         return False
     
     # Check that at most one switching action happens
@@ -107,115 +155,12 @@ def check_feasibility(
     # All constraints satisfied
     return True
 
-def sample_representative_state_pairs(data, num_samples=50):
-    
-    state_pairs = []
-    
-    # Extract data parameters needed for sampling and feasibility checks
-    price_floor = data['price_floor']
-    price_cap = data['price_cap']
-    mean_price = data['mean_price']
-    target_mean_wind = data['target_mean_wind']
-    hydrogen_capacity = data['hydrogen_capacity']
-    p2h_max_rate = data['p2h_max_rate']
-    h2p_max_rate = data['h2p_max_rate']
-    r_p2h = data['conversion_p2h']
-    r_h2p = data['conversion_h2p']
-    demand = data['demand_schedule'][0]  # Using first demand value for simplicity
-    
-    # Counter for attempts to avoid infinite loops
-    attempts = 0
-    max_attempts = num_samples * 10
-    
-    while len(state_pairs) < num_samples and attempts < max_attempts:
-        attempts += 1
-        
-        # Sample exogenous variables z_t (price, wind)
-        price = random.uniform(price_floor, price_cap)
-        wind = random.uniform(0, target_mean_wind * 2)  # 0 to twice the mean
-        
-        # Sample endogenous variables y_t (hydrogen, electrolyzer_status)
-        hydrogen = random.uniform(0, hydrogen_capacity)
-        electrolyzer_status = random.choice([0, 1])
-        
-        # Create the state
-        state = (price, wind, hydrogen, electrolyzer_status)
-        
-        # Check if this state has at least one feasible decision
-        # We'll try a few basic decisions to see if any are feasible
-        has_feasible_decision = False
-        
-        # Try some simple decision combinations
-        for p_grid in [0, demand/2, demand]:
-            for p_h2p in [0, min(1, hydrogen)]:
-                for p_p2h in [0] if electrolyzer_status == 0 else [0, 2]:
-                    # No switching for simplicity
-                    electrolyzer_on, electrolyzer_off = 0, 0
-                    
-                    # Check if this decision is feasible
-                    feasible = check_feasibility(
-                        electrolyzer_status=electrolyzer_status,
-                        electrolyzer_on=electrolyzer_on,
-                        electrolyzer_off=electrolyzer_off,
-                        p_grid=p_grid,
-                        p_p2h=p_p2h,
-                        p_h2p=p_h2p,
-                        hydrogen_level=hydrogen,
-                        wind_power=wind,
-                        demand=demand,
-                        p2h_max_rate=p2h_max_rate,
-                        h2p_max_rate=h2p_max_rate,
-                        r_p2h=r_p2h,
-                        r_h2p=r_h2p,
-                        hydrogen_capacity=hydrogen_capacity
-                    )
-                    
-                    if feasible:
-                        has_feasible_decision = True
-                        break
-                
-                if has_feasible_decision:
-                    break
-            
-            if has_feasible_decision:
-                break
-        
-        # Only add states that have at least one feasible decision
-        if has_feasible_decision:
-            state_pairs.append(state)
-    
-    # Add a few critical region samples (20% of total samples)
-    critical_samples = min(int(num_samples * 0.2), max(1, num_samples - len(state_pairs)))
-    
-    for _ in range(critical_samples):
-        # Choose a critical region scenario (low price or high price)
-        scenario = random.choice(['low_price', 'high_price'])
-        
-        if scenario == 'low_price':
-            # Low price, opportunity to produce hydrogen
-            price = random.uniform(price_floor, mean_price * 0.7)
-            wind = random.uniform(target_mean_wind * 0.5, target_mean_wind * 2)
-            hydrogen = random.uniform(0, hydrogen_capacity * 0.5)
-            electrolyzer_status = 1  # On for producing hydrogen
-        else:
-            # High price, opportunity to use hydrogen
-            price = random.uniform(mean_price * 1.3, price_cap)
-            wind = random.uniform(0, target_mean_wind)
-            hydrogen = random.uniform(hydrogen_capacity * 0.5, hydrogen_capacity)
-            electrolyzer_status = random.choice([0, 1])
-        
-        # Add this critical state if it has feasible decisions (same check as above)
-        state = (price, wind, hydrogen, electrolyzer_status)
-        state_pairs.append(state)
-    
-    return state_pairs
-
 def compute_target_value(state, theta, t, demand, data, K=20):
 
     price, wind, hydrogen, status = state
     
     # Define possible values for decision variables
-    grid_powers = [0,1,2,3,4,5,6,7,8,9,10]  # Grid power options
+    grid_powers = [0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5,6,6.5,7,7.5,8]
     h2p_values = [0,1,2,3] if hydrogen >= 2 else ([0, 1] if hydrogen >= 1 else [0])
     p2h_values = [0,1,2,3,4,5] if status == 1 else [0]
     
@@ -293,7 +238,6 @@ def compute_target_value(state, theta, t, demand, data, K=20):
     # Return the maximum value found (or default if no feasible decision)
     return best_value if best_value > float('-inf') else 0
 
-
 def sample_exogenous_states(price, wind, data, num_samples):
 
     samples = []
@@ -311,7 +255,6 @@ def sample_exogenous_states(price, wind, data, num_samples):
     
     return samples
 
-
 def predict_value(state, theta):
 
     # Extract features
@@ -321,11 +264,16 @@ def predict_value(state, theta):
         price,            # Price
         wind,             # Wind
         hydrogen,         # Hydrogen storage
-        float(status),    # Electrolyzer status
+        int(status),    # Electrolyzer status
+        price * hydrogen, # Interaction term, price and hydrogen
+        wind * hydrogen,  # Interaction term, wind and hydrogen
+        price * status, # Interaction term, price and status         
+        wind * status,  # Interaction term, wind and status
+        hydrogen * status   # Interaction term, hydrogen and status
     ]
     
     # Linear value function approximation
-    return sum(f * t for f, t in zip(features, theta))
+    return np.dot(features, theta)
 
 def extract_features(state): # CHECK    
     """Extract features for the value function approximation"""
@@ -335,22 +283,22 @@ def extract_features(state): # CHECK
         price,            # Price
         wind,             # Wind
         hydrogen,         # Hydrogen storage
-        float(status),   # Electrolyzer status
+        int(status),   # Electrolyzer status
+        price * hydrogen, # Interaction term, price and hydrogen
+        wind * hydrogen,  # Interaction term, wind and hydrogen
+        price * status, # Interaction term, price and status         
+        wind * status,  # Interaction term, wind and status
+        hydrogen * status   # Interaction term, hydrogen and status
     ])
 
+#####
+
+
 def update_theta_parameters(theta, state, V_target, num_candidates=20):
+
     """
     Step 1.3: Update the theta parameters using random search to minimize
     the squared error between predicted value and target value.
-    
-    Args:
-        theta: Current theta parameters
-        state: Current state (price, wind, hydrogen, status)
-        V_target: Target value computed from Step 1.2
-        num_candidates: Number of candidate thetas to generate
-        
-    Returns:
-        Updated theta parameters
     """
     # Generate candidate theta vectors
     thetas = []
@@ -373,3 +321,11 @@ def update_theta_parameters(theta, state, V_target, num_candidates=20):
     best_theta = thetas[np.argmin(errors)]
     
     return best_theta
+
+def calculate_next_hydrogen(hydrogen, h2p, p2h, data): # CHECK
+    """Calculate the next hydrogen level"""
+    h_used = h2p
+    h_produced = p2h * data['conversion_p2h']
+    next_hydrogen = hydrogen - h_used + h_produced
+    next_hydrogen = max(0, min(next_hydrogen, data['hydrogen_capacity']))
+    return next_hydrogen

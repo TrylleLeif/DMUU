@@ -14,55 +14,15 @@ from task_3.helper_functions import (
     sample_exogenous_states,
     predict_value,
     extract_features,
-    update_theta_parameters
+    update_theta_parameters,
+    calculate_next_hydrogen
 )
-
 
 # Global variable to store trained parameters
 TRAINED_THETA = None
-K_val = None 
 
-def extract_features(state): # CHECK    
-    """Extract features for the value function approximation"""
-    price, wind, hydrogen, status = state
-    return np.array([
-        1.0,              # Constant term
-        price,            # Price
-        wind,             # Wind
-        hydrogen,         # Hydrogen storage
-        float(status),    # Electrolyzer status
-        # hydrogen * price, # Interaction term - helps with hydrogen valuation
-        # wind * price,     # Wind-price interaction - helps with grid vs. wind decisions
-    ])
-
-def predict_value(state, theta): # CHECK
-    features = extract_features(state)
-    return np.dot(theta, features)
-
-def calculate_immediate_cost(price, wind, hydrogen, grid_power, h2p, p2h, elec_status, data, time_period): # CHECK
-    t_mod = time_period % len(data['demand_schedule'])
-    demand = data['demand_schedule'][t_mod]
-    
-    # Power balance check - this should be guaranteed by the feasibility check
-    power_supply = wind + grid_power + h2p * data['conversion_h2p']
-    power_demand = demand + p2h
-    
-    # Calculate costs
-    grid_cost = price * grid_power
-    electrolyzer_cost = data['electrolyzer_cost'] * elec_status
-    
-    # Add a small penalty for having electrolyzer on but not using it
-    # idle_penalty = 0.05 * data['electrolyzer_cost'] * (elec_status * (p2h == 0)) # Removed for simplicity
-    
-    return grid_cost + electrolyzer_cost # + idle_penalty
-
-def calculate_next_hydrogen(hydrogen, h2p, p2h, data): # CHECK
-    """Calculate the next hydrogen level"""
-    h_used = h2p
-    h_produced = p2h * data['conversion_p2h']
-    next_hydrogen = hydrogen - h_used + h_produced
-    next_hydrogen = max(0, min(next_hydrogen, data['hydrogen_capacity']))
-    return next_hydrogen
+# setting a seed for reproducibility
+np.random.seed(44)
 
 def train_vfa():
     """Train the Value Function Approximation"""
@@ -70,7 +30,7 @@ def train_vfa():
     num_timeslots = data['num_timeslots']
     
     # Initialize theta with feature dimensionality
-    feature_dim = len(extract_features((0, 0, 0, 0)))
+    feature_dim = len(predict_value(state, theta))
     theta = np.zeros(feature_dim)
     K_val = 20  # Number of samples for future cost estimation
     
@@ -106,17 +66,6 @@ def train_vfa():
 def compute_optimal_action(state, theta, demand, data, next_states, K_val=20):
     """
     Step 2.2: Compute optimal action for the current state.
-    
-    Args:
-        state: Current state (price, wind, hydrogen, status)
-        theta: Trained theta parameters
-        demand: Current demand
-        data: Dictionary containing problem parameters
-        next_states: Sampled exogenous states
-        K_val: Number of next states sampled
-        
-    Returns:
-        Tuple of optimal decision variables (elec_on, elec_off, grid, p2h, h2p)
     """
     price, wind, hydrogen, status = state
     
