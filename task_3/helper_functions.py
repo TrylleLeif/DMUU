@@ -108,16 +108,6 @@ def check_feasibility(
     return True
 
 def sample_representative_state_pairs(data, num_samples=50):
-    """
-    Step 1.1: Sample representative state pairs (z_t^i, y_t^i) for VFA training.
-    
-    Args:
-        data: Dictionary containing problem parameters
-        num_samples: Number of state pairs to generate
-        
-    Returns:
-        List of state pairs, where each state is (price, wind, hydrogen, electrolyzer_status)
-    """
     
     state_pairs = []
     
@@ -218,7 +208,7 @@ def sample_representative_state_pairs(data, num_samples=50):
         state = (price, wind, hydrogen, electrolyzer_status)
         state_pairs.append(state)
     
-    return state_pairs[:num_samples]  # Return exactly num_samples states
+    return state_pairs
 
 def compute_target_value(state, theta, t, demand, data, K=20):
 
