@@ -5,6 +5,9 @@ from sklearn.cluster import KMeans
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
 import numpy as np
+from pyomo.environ import (ConcreteModel, Var, Binary, NonNegativeReals, Set, RangeSet,
+                         Objective, Constraint, SolverFactory, TerminationCondition, 
+                         minimize, value, Param)
 #np.import_array()
 # ===================================================
 # || Generate scenarios for stochastic programming ||
@@ -188,6 +191,7 @@ def scenario_tree_generation(
         print(f"\nSum of scenario probabilities: {np.sum(probabilities):.6f}")
     
     return scenarios, probabilities, non_anticipativity_sets
+
 def stochastic_programming_policy(
     current_time: int,
     electrolyzer_status: int,
@@ -204,29 +208,6 @@ def stochastic_programming_policy(
 ) -> Tuple[int, int, float, float, float]:
     """
     Multi-stage stochastic programming policy for the energy hub problem.
-    
-    Args:
-        current_time: Current time slot
-        electrolyzer_status: Current electrolyzer status (0=off, 1=on)
-        hydrogen_level: Current hydrogen storage level
-        wind_power: Current wind power generation
-        grid_price: Current electricity price
-        demand: Current electricity demand
-        data: Problem data dictionary
-        previous_wind: Previous wind power generation 
-        previous_price: Previous electricity price
-        previous_wind_2: Wind power from two time steps ago
-        previous_price_2: Price from two time steps ago
-        lookahead_horizon: Number of time periods to look ahead
-        branches_per_stage: Number of branches at each stage
-        _debug: Whether to print validation information
-        
-    Returns:
-        electrolyzer_on: Decision to turn electrolyzer on (0 or 1)
-        electrolyzer_off: Decision to turn electrolyzer off (0 or 1)
-        p_grid: Power drawn from the grid
-        p_p2h: Power converted to hydrogen
-        p_h2p: Hydrogen converted to power
     """
     if _debug:
         print("\n==== STOCHASTIC PROGRAMMING POLICY ====")
@@ -239,11 +220,11 @@ def stochastic_programming_policy(
         total_vars = 7 * lookahead_horizon * total_scenarios
         print(f"Total scenarios: {total_scenarios}, Total variables: {total_vars}")
     
-    # Use provided previous wind and price if available, otherwise use estimates
+    # use constants given by prof
     if previous_wind is None:
-        previous_wind = wind_power * 0.95  # Simple estimate
+        previous_wind =  4 # given by professor
     if previous_price is None:
-        previous_price = grid_price * 0.98  # Simple estimate
+        previous_price = 28 # given by professor
     
     # Generate scenario tree
     scenarios, probabilities, non_anticipativity_sets = scenario_tree_generation(
@@ -257,14 +238,13 @@ def stochastic_programming_policy(
         print("\n--- OPTIMIZATION MODEL ---")
         print(f"Building model with {num_scenarios} scenarios and {lookahead_horizon} stages")
     
-    # Create and solve the stochastic optimization model
-    import pyomo.environ as pyo
     
-    model = pyo.ConcreteModel()
+    
+    model = ConcreteModel()
     
     # Define sets
-    model.T = pyo.RangeSet(0, lookahead_horizon-1)  # Time periods (0 = here-and-now)
-    model.S = pyo.RangeSet(0, num_scenarios-1)      # Scenarios
+    model.T = RangeSet(0, lookahead_horizon-1)  # Time periods (0 = here-and-now)
+    model.S = RangeSet(0, num_scenarios-1)      # Scenarios
     
     # Define parameters for each scenario
     def wind_param_init(model, t, s):
@@ -286,19 +266,19 @@ def stochastic_programming_policy(
         else:
             return data['demand_schedule'][-1]  # Use last known demand if beyond horizon
     
-    model.wind = pyo.Param(model.T, model.S, initialize=wind_param_init)
-    model.price = pyo.Param(model.T, model.S, initialize=price_param_init)
-    model.demand = pyo.Param(model.T, initialize=demand_param_init)
-    model.probability = pyo.Param(model.S, initialize=lambda model, s: probabilities[s])
+    model.wind = Param(model.T, model.S, initialize=wind_param_init)
+    model.price = Param(model.T, model.S, initialize=price_param_init)
+    model.demand = Param(model.T, initialize=demand_param_init)
+    model.probability = Param(model.S, initialize=lambda model, s: probabilities[s])
     
     # Define variables
-    model.y_on = pyo.Var(model.T, model.S, domain=pyo.Binary)
-    model.y_off = pyo.Var(model.T, model.S, domain=pyo.Binary)
-    model.x = pyo.Var(model.T, model.S, domain=pyo.Binary)
-    model.p_grid = pyo.Var(model.T, model.S, domain=pyo.NonNegativeReals)
-    model.p_p2h = pyo.Var(model.T, model.S, domain=pyo.NonNegativeReals)
-    model.p_h2p = pyo.Var(model.T, model.S, domain=pyo.NonNegativeReals)
-    model.h = pyo.Var(model.T, model.S, domain=pyo.NonNegativeReals)
+    model.y_on = Var(model.T, model.S, domain=Binary)
+    model.y_off = Var(model.T, model.S, domain=Binary)
+    model.x = Var(model.T, model.S, domain=Binary)
+    model.p_grid = Var(model.T, model.S, domain=NonNegativeReals)
+    model.p_p2h = Var(model.T, model.S, domain=NonNegativeReals)
+    model.p_h2p = Var(model.T, model.S, domain=NonNegativeReals)
+    model.h = Var(model.T, model.S, domain=NonNegativeReals)
     
     # Define objective function - minimize expected cost
     def obj_rule(model):
@@ -307,7 +287,7 @@ def stochastic_programming_policy(
                                               for t in model.T) 
                   for s in model.S)
     
-    model.objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize)
+    model.objective = Objective(rule=obj_rule, sense=minimize)
     
     # Define constraints
     
@@ -316,19 +296,19 @@ def stochastic_programming_policy(
         return (model.wind[t, s] + model.p_grid[t, s] + 
                 data['conversion_h2p'] * model.p_h2p[t, s] - model.p_p2h[t, s] >= model.demand[t])
     
-    model.power_balance = pyo.Constraint(model.T, model.S, rule=power_balance_rule)
+    model.power_balance = Constraint(model.T, model.S, rule=power_balance_rule)
     
     # Power-to-hydrogen rate constraint
     def p2h_limit_rule(model, t, s):
         return model.p_p2h[t, s] <= data['p2h_max_rate'] * model.x[t, s]
     
-    model.p2h_limit = pyo.Constraint(model.T, model.S, rule=p2h_limit_rule)
+    model.p2h_limit = Constraint(model.T, model.S, rule=p2h_limit_rule)
     
     # Hydrogen-to-power rate constraint
     def h2p_limit_rule(model, t, s):
         return model.p_h2p[t, s] <= data['h2p_max_rate']
     
-    model.h2p_limit = pyo.Constraint(model.T, model.S, rule=h2p_limit_rule)
+    model.h2p_limit = Constraint(model.T, model.S, rule=h2p_limit_rule)
     
     # Hydrogen storage balance constraint
     def storage_balance_rule(model, t, s):
@@ -338,19 +318,19 @@ def stochastic_programming_policy(
             return (model.h[t, s] == model.h[t-1, s] + 
                    data['conversion_p2h'] * model.p_p2h[t-1, s] - model.p_h2p[t-1, s])
     
-    model.storage_balance = pyo.Constraint(model.T, model.S, rule=storage_balance_rule)
+    model.storage_balance = Constraint(model.T, model.S, rule=storage_balance_rule)
     
     # Hydrogen availability constraint
     def h2p_availability_rule(model, t, s):
         return model.p_h2p[t, s] <= model.h[t, s]
     
-    model.h2p_availability = pyo.Constraint(model.T, model.S, rule=h2p_availability_rule)
+    model.h2p_availability = Constraint(model.T, model.S, rule=h2p_availability_rule)
     
     # Hydrogen storage capacity constraint
     def storage_capacity_rule(model, t, s):
         return model.h[t, s] <= data['hydrogen_capacity']
     
-    model.storage_capacity = pyo.Constraint(model.T, model.S, rule=storage_capacity_rule)
+    model.storage_capacity = Constraint(model.T, model.S, rule=storage_capacity_rule)
     
     # Electrolyzer status update constraint
     def status_update_rule(model, t, s):
@@ -359,13 +339,13 @@ def stochastic_programming_policy(
         else:
             return model.x[t, s] == model.x[t-1, s] + model.y_on[t-1, s] - model.y_off[t-1, s]
     
-    model.status_update = pyo.Constraint(model.T, model.S, rule=status_update_rule)
+    model.status_update = Constraint(model.T, model.S, rule=status_update_rule)
     
     # Constraint on switching actions
     def switch_limit_rule(model, t, s):
         return model.y_on[t, s] + model.y_off[t, s] <= 1
     
-    model.switch_limit = pyo.Constraint(model.T, model.S, rule=switch_limit_rule)
+    model.switch_limit = Constraint(model.T, model.S, rule=switch_limit_rule)
     
     # Non-anticipativity constraints based on the scenario tree structure
     na_count = 0
@@ -376,15 +356,15 @@ def stochastic_programming_policy(
                 # Only need these constraints for t+1 since t is already enforced
                 if t < lookahead_horizon - 1:
                     model.add_component(f"na_y_on_{t}_{base_s}_{other_s}", 
-                        pyo.Constraint(expr=model.y_on[t, base_s] == model.y_on[t, other_s]))
+                        Constraint(expr=model.y_on[t, base_s] == model.y_on[t, other_s]))
                     model.add_component(f"na_y_off_{t}_{base_s}_{other_s}", 
-                        pyo.Constraint(expr=model.y_off[t, base_s] == model.y_off[t, other_s]))
+                        Constraint(expr=model.y_off[t, base_s] == model.y_off[t, other_s]))
                     model.add_component(f"na_p_grid_{t}_{base_s}_{other_s}", 
-                        pyo.Constraint(expr=model.p_grid[t, base_s] == model.p_grid[t, other_s]))
+                        Constraint(expr=model.p_grid[t, base_s] == model.p_grid[t, other_s]))
                     model.add_component(f"na_p_p2h_{t}_{base_s}_{other_s}", 
-                        pyo.Constraint(expr=model.p_p2h[t, base_s] == model.p_p2h[t, other_s]))
+                        Constraint(expr=model.p_p2h[t, base_s] == model.p_p2h[t, other_s]))
                     model.add_component(f"na_p_h2p_{t}_{base_s}_{other_s}", 
-                        pyo.Constraint(expr=model.p_h2p[t, base_s] == model.p_h2p[t, other_s]))
+                        Constraint(expr=model.p_h2p[t, base_s] == model.p_h2p[t, other_s]))
                     na_count += 5
     
     if _debug:
@@ -392,25 +372,25 @@ def stochastic_programming_policy(
         print("Solving optimization model...")
     
     # Solve the model
-    solver = pyo.SolverFactory('gurobi')
+    solver = SolverFactory('gurobi')
     solver.options['TimeLimit'] = 60  # Set a time limit to ensure the policy terminates
     
     try:
         results = solver.solve(model, tee=False)
         
         # Extract first-stage (here-and-now) decisions
-        if results.solver.termination_condition == pyo.TerminationCondition.optimal:
+        if results.solver.termination_condition == TerminationCondition.optimal:
             # Take first scenario's first-stage decisions (they should be the same across scenarios)
-            electrolyzer_on = int(pyo.value(model.y_on[0, 0]))
-            electrolyzer_off = int(pyo.value(model.y_off[0, 0]))
-            p_grid = pyo.value(model.p_grid[0, 0])
-            p_p2h = pyo.value(model.p_p2h[0, 0])
-            p_h2p = pyo.value(model.p_h2p[0, 0])
+            electrolyzer_on = int(value(model.y_on[0, 0]))
+            electrolyzer_off = int(value(model.y_off[0, 0]))
+            p_grid = value(model.p_grid[0, 0])
+            p_p2h = value(model.p_p2h[0, 0])
+            p_h2p = value(model.p_h2p[0, 0])
             
             if _debug:
                 print("\n--- OPTIMAL SOLUTION ---")
                 print(f"Solver status: {results.solver.status}, termination condition: {results.solver.termination_condition}")
-                print(f"Objective value: {pyo.value(model.objective):.2f}")
+                print(f"Objective value: {value(model.objective):.2f}")
                 print("First-stage decisions:")
                 print(f"  electrolyzer_on = {electrolyzer_on}")
                 print(f"  electrolyzer_off = {electrolyzer_off}")
@@ -421,9 +401,9 @@ def stochastic_programming_policy(
                 # Verify non-anticipativity is enforced
                 print("\nVerifying non-anticipativity for first stage:")
                 for s in range(min(3, num_scenarios)):  # Check just a few scenarios
-                    print(f"  Scenario {s}: y_on={pyo.value(model.y_on[0, s])}, " + 
-                          f"y_off={pyo.value(model.y_off[0, s])}, " +
-                          f"p_grid={pyo.value(model.p_grid[0, s]):.2f}")
+                    print(f"  Scenario {s}: y_on={value(model.y_on[0, s])}, " + 
+                          f"y_off={value(model.y_off[0, s])}, " +
+                          f"p_grid={value(model.p_grid[0, s]):.2f}")
         else:
             # If optimization failed, make a simple decision based on current state
             electrolyzer_on = 0
@@ -533,10 +513,10 @@ def expected_value_policy(
         prev_price = expected_price[t]
     
     # Create and solve deterministic optimization model
-    model = pyo.ConcreteModel()
+    model = ConcreteModel()
     
     # Define sets
-    model.T = pyo.RangeSet(0, horizon-1)  # Time periods (0 = here-and-now)
+    model.T = RangeSet(0, horizon-1)  # Time periods (0 = here-and-now)
     
     # Define parameters
     def wind_param_init(model, t):
@@ -552,18 +532,18 @@ def expected_value_policy(
         else:
             return data['demand_schedule'][-1]  # Use last known demand if beyond horizon
     
-    model.wind = pyo.Param(model.T, initialize=wind_param_init)
-    model.price = pyo.Param(model.T, initialize=price_param_init)
-    model.demand = pyo.Param(model.T, initialize=demand_param_init)
+    model.wind = Param(model.T, initialize=wind_param_init)
+    model.price = Param(model.T, initialize=price_param_init)
+    model.demand = Param(model.T, initialize=demand_param_init)
     
     # Define variables
-    model.y_on = pyo.Var(model.T, domain=pyo.Binary)
-    model.y_off = pyo.Var(model.T, domain=pyo.Binary)
-    model.x = pyo.Var(model.T, domain=pyo.Binary)
-    model.p_grid = pyo.Var(model.T, domain=pyo.NonNegativeReals)
-    model.p_p2h = pyo.Var(model.T, domain=pyo.NonNegativeReals)
-    model.p_h2p = pyo.Var(model.T, domain=pyo.NonNegativeReals)
-    model.h = pyo.Var(model.T, domain=pyo.NonNegativeReals)
+    model.y_on = Var(model.T, domain=Binary)
+    model.y_off = Var(model.T, domain=Binary)
+    model.x = Var(model.T, domain=Binary)
+    model.p_grid = Var(model.T, domain=NonNegativeReals)
+    model.p_p2h = Var(model.T, domain=NonNegativeReals)
+    model.p_h2p = Var(model.T, domain=NonNegativeReals)
+    model.h = Var(model.T, domain=NonNegativeReals)
     
     # Define objective function
     def obj_rule(model):
@@ -571,7 +551,7 @@ def expected_value_policy(
                    data['electrolyzer_cost'] * model.x[t] 
                    for t in model.T)
     
-    model.objective = pyo.Objective(rule=obj_rule, sense=pyo.minimize)
+    model.objective = Objective(rule=obj_rule, sense=minimize)
     
     # Define constraints (same as in stochastic programming policy)
     
@@ -580,19 +560,19 @@ def expected_value_policy(
         return (model.wind[t] + model.p_grid[t] + 
                 data['conversion_h2p'] * model.p_h2p[t] - model.p_p2h[t] >= model.demand[t])
     
-    model.power_balance = pyo.Constraint(model.T, rule=power_balance_rule)
+    model.power_balance = Constraint(model.T, rule=power_balance_rule)
     
     # Power-to-hydrogen rate constraint
     def p2h_limit_rule(model, t):
         return model.p_p2h[t] <= data['p2h_max_rate'] * model.x[t]
     
-    model.p2h_limit = pyo.Constraint(model.T, rule=p2h_limit_rule)
+    model.p2h_limit = Constraint(model.T, rule=p2h_limit_rule)
     
     # Hydrogen-to-power rate constraint
     def h2p_limit_rule(model, t):
         return model.p_h2p[t] <= data['h2p_max_rate']
     
-    model.h2p_limit = pyo.Constraint(model.T, rule=h2p_limit_rule)
+    model.h2p_limit = Constraint(model.T, rule=h2p_limit_rule)
     
     # Hydrogen storage balance constraint
     def storage_balance_rule(model, t):
@@ -602,19 +582,19 @@ def expected_value_policy(
             return (model.h[t] == model.h[t-1] + 
                    data['conversion_p2h'] * model.p_p2h[t-1] - model.p_h2p[t-1])
     
-    model.storage_balance = pyo.Constraint(model.T, rule=storage_balance_rule)
+    model.storage_balance = Constraint(model.T, rule=storage_balance_rule)
     
     # Hydrogen availability constraint
     def h2p_availability_rule(model, t):
         return model.p_h2p[t] <= model.h[t]
     
-    model.h2p_availability = pyo.Constraint(model.T, rule=h2p_availability_rule)
+    model.h2p_availability = Constraint(model.T, rule=h2p_availability_rule)
     
     # Hydrogen storage capacity constraint
     def storage_capacity_rule(model, t):
         return model.h[t] <= data['hydrogen_capacity']
     
-    model.storage_capacity = pyo.Constraint(model.T, rule=storage_capacity_rule)
+    model.storage_capacity = Constraint(model.T, rule=storage_capacity_rule)
     
     # Electrolyzer status update constraint
     def status_update_rule(model, t):
@@ -623,28 +603,28 @@ def expected_value_policy(
         else:
             return model.x[t] == model.x[t-1] + model.y_on[t-1] - model.y_off[t-1]
     
-    model.status_update = pyo.Constraint(model.T, rule=status_update_rule)
+    model.status_update = Constraint(model.T, rule=status_update_rule)
     
     # Constraint on switching actions
     def switch_limit_rule(model, t):
         return model.y_on[t] + model.y_off[t] <= 1
     
-    model.switch_limit = pyo.Constraint(model.T, rule=switch_limit_rule)
+    model.switch_limit = Constraint(model.T, rule=switch_limit_rule)
     
     # Solve the model
-    solver = pyo.SolverFactory('gurobi')
+    solver = SolverFactory('gurobi')
     solver.options['TimeLimit'] = 30  # Set a time limit
     
     try:
         results = solver.solve(model, tee=False)
         
         # Extract first-stage (here-and-now) decisions
-        if results.solver.termination_condition == pyo.TerminationCondition.optimal:
-            electrolyzer_on = int(pyo.value(model.y_on[0]))
-            electrolyzer_off = int(pyo.value(model.y_off[0]))
-            p_grid = pyo.value(model.p_grid[0])
-            p_p2h = pyo.value(model.p_p2h[0])
-            p_h2p = pyo.value(model.p_h2p[0])
+        if results.solver.termination_condition == TerminationCondition.optimal:
+            electrolyzer_on = int(value(model.y_on[0]))
+            electrolyzer_off = int(value(model.y_off[0]))
+            p_grid = value(model.p_grid[0])
+            p_p2h = value(model.p_p2h[0])
+            p_h2p = value(model.p_h2p[0])
         else:
             # Fall back to a simple decision rule if optimization fails
             electrolyzer_on = 0
