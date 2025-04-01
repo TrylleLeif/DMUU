@@ -1,16 +1,15 @@
+
 import numpy as np
-from typing import Dict, List, Tuple, Any
 import sys, os, random
 import matplotlib.pyplot as plt
+from typing import Dict, List, Tuple, Any
 # Add the project root directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-
 from utils.data import get_fixed_data
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
-
 
 def generate_trajectories(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -119,8 +118,6 @@ def sample_representative_state_pairs(data, num_samples=50):
     Returns:
         List of state pairs, where each state is (price, wind, hydrogen, electrolyzer_status)
     """
-    import numpy as np
-    import random
     
     state_pairs = []
     
@@ -228,9 +225,9 @@ def compute_target_value(state, theta, t, demand, data, K=20):
     price, wind, hydrogen, status = state
     
     # Define possible values for decision variables
-    grid_powers = [0, 2, 4, 6, 8]  # Grid power options
-    h2p_values = [0, 1, 2] if hydrogen >= 2 else ([0, 1] if hydrogen >= 1 else [0])
-    p2h_values = [0, 2, 4] if status == 1 else [0]
+    grid_powers = [0,1,2,3,4,5,6,7,8,9,10]  # Grid power options
+    h2p_values = [0,1,2,3] if hydrogen >= 2 else ([0, 1] if hydrogen >= 1 else [0])
+    p2h_values = [0,1,2,3,4,5] if status == 1 else [0]
     
     # Electrolyzer control options
     if status == 0:
@@ -339,3 +336,50 @@ def predict_value(state, theta):
     
     # Linear value function approximation
     return sum(f * t for f, t in zip(features, theta))
+
+def extract_features(state): # CHECK    
+    """Extract features for the value function approximation"""
+    price, wind, hydrogen, status = state
+    return np.array([
+        1.0,              # Constant term
+        price,            # Price
+        wind,             # Wind
+        hydrogen,         # Hydrogen storage
+        float(status),   # Electrolyzer status
+    ])
+
+def update_theta_parameters(theta, state, V_target, num_candidates=20):
+    """
+    Step 1.3: Update the theta parameters using random search to minimize
+    the squared error between predicted value and target value.
+    
+    Args:
+        theta: Current theta parameters
+        state: Current state (price, wind, hydrogen, status)
+        V_target: Target value computed from Step 1.2
+        num_candidates: Number of candidate thetas to generate
+        
+    Returns:
+        Updated theta parameters
+    """
+    # Generate candidate theta vectors
+    thetas = []
+    errors = []
+    
+    for _ in range(num_candidates):
+        # Generate a random perturbation of the current theta
+        theta_var = theta + np.random.normal(0, 0.1, size=len(theta))
+        thetas.append(theta_var)
+        
+        # Calculate predicted value
+        state_features = extract_features(state)
+        V_tilde = np.dot(theta_var, state_features)
+        
+        # Calculate squared error
+        error = (V_tilde - V_target) ** 2
+        errors.append(error)
+    
+    # Update theta to the one with minimum error
+    best_theta = thetas[np.argmin(errors)]
+    
+    return best_theta
