@@ -25,8 +25,8 @@ def extract_features(state): # CHECK
         wind,             # Wind
         hydrogen,         # Hydrogen storage
         float(status),    # Electrolyzer status
-        #hydrogen * price, # Interaction term - helps with hydrogen valuation
-        #wind * price,     # Wind-price interaction - helps with grid vs. wind decisions
+        # hydrogen * price, # Interaction term - helps with hydrogen valuation
+        # wind * price,     # Wind-price interaction - helps with grid vs. wind decisions
     ])
 
 def predict_value(state, theta): # CHECK
@@ -74,8 +74,7 @@ def train_vfa():
             print(f"Training time period {t}")
         
         # Sample representative state pairs
-        states = sample_representative_states(data, num_samples=40)
-        states = add_critical_region_samples(states, data, num_extra=20)
+        states = sample_representative_state_pairs(data, num_samples=60)
         
         # For each sample
         for state in states:
@@ -86,7 +85,7 @@ def train_vfa():
             demand = data['demand_schedule'][t_mod]
             
             # Generate all possible combinations of decision variables
-            grid_powers = [0, 2, 4, 6, 8]  # More grid power options
+            grid_powers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # More grid power options
             h2p_values = [0, 1, 2] if hydrogen >= 2 else ([0, 1] if hydrogen >= 1 else [0])
             p2h_values = [0, 2, 4] if status == 1 else [0]
             
