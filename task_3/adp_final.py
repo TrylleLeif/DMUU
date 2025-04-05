@@ -1,13 +1,14 @@
 import numpy as np
-from typing import Dict, List, Tuple, Any, Callable
+from typing import Dict, List, Tuple, Any, Callable, Optional
 from utils.WindProcess import wind_model
 from utils.PriceProcess import price_model
+import pickle
 
 # ============================================
 # || Utility Functions                      ||
 # ============================================
 
-def features(state):
+def features(state, t: Optional[int] = 0):
     """
     Extract features from the state for value function approximation.
     """
@@ -154,7 +155,7 @@ def get_nba(
         #next_electrolyzer_status = electrolyzer_status + electrolyzer_on - electrolyzer_off
         
         # Try different levels of p_p2h and p_h2p
-        for p_p2h_factor in [0.0,0.2,0.4,0.6,0.8,1.0]:
+        for p_p2h_factor in [0.0,0.2,0.4,0.6,0.8,1.0] if electrolyzer_status == 1 else [0.0]:
             p_p2h = p_p2h_factor * p2h_max * electrolyzer_status # electro t-1 
             
             for p_h2p_factor in [0.0,0.2,0.4,0.6,0.8,1.0]:
@@ -232,9 +233,10 @@ def generate_state_samples(num_samples: int, data: Dict[str, Any]) -> List[Dict[
         if i == 1:
             wind_samples[i] = wind_model(wind_samples[0], 4, data)
             price_samples[i] = price_model(price_samples[0], 28, wind_samples[i], data)
-        wind_samples[i] = wind_model(wind_samples[i-1], wind_samples[i-2], data)
-        price_samples[i] = price_model(price_samples[i-1], price_samples[max(0, i-2)], wind_samples[i], data)
-    
+        else:
+            wind_samples[i] = wind_model(wind_samples[i-1], wind_samples[i-2], data)
+            price_samples[i] = price_model(price_samples[i-1], price_samples[max(0, i-2)], wind_samples[i], data)
+        
     # Generate random hydrogen levels and electrolyzer statuses
     # assuming uniform distribution
     hydrogen_capacity = data['hydrogen_capacity']
@@ -262,10 +264,10 @@ def generate_state_samples(num_samples: int, data: Dict[str, Any]) -> List[Dict[
 
 def train_vfa(
     data: Dict[str, Any],
-    num_iterations: int = 25,
+    num_iterations: int = 10,
     num_time_steps: int = 24,
     discount_factor: float = 0.95,
-    num_state_samples: int = 1000,
+    num_state_samples: int = 100,
     num_next_state_samples: int = 50
 ) -> List[np.ndarray]:
     """
@@ -300,9 +302,6 @@ def train_vfa(
             
             # For each state sample
             for state in state_samples:
-                # Create next state sampler function
-                def next_state_sampler(wind, prev_wind, price, prev_price, data, num_samples=num_next_state_samples):
-                    return sample_next_exogenous(wind, prev_wind, price, prev_price, data, num_samples)
                 
                 # Get the current demand for this time step
                 current_demand = demands[t]
@@ -375,7 +374,7 @@ def train_vfa(
                 target_value = immediate_reward + discount_factor * expected_future_value
                 
                 # Store feature vector and target
-                features_matrix.append(features(state))
+                features_matrix.append(features(state,t))
                 targets.append(target_value)
             
             # Convert to numpy arrays
@@ -387,13 +386,7 @@ def train_vfa(
             try:
                 theta_list[t] = np.linalg.lstsq(features_matrix, targets, rcond=None)[0]
             except np.linalg.LinAlgError:
-                # If matrix is singular, add regularization
-                print(f"Warning: LinAlgError at t={t}, adding regularization")
-                reg_matrix = 0.01 * np.identity(features_matrix.shape[1])
-                theta_list[t] = np.linalg.solve(
-                    features_matrix.T @ features_matrix + reg_matrix,
-                    features_matrix.T @ targets
-                )
+                print(f"Warning: LinAlgError at t={t}")
     
     return theta_list
 
@@ -421,6 +414,9 @@ def adp_policy_final(
     if '_trained_theta_list' not in globals():
         print("Training VFA parameters (first run)...")
         _trained_theta_list = train_vfa(data)
+        # Save the trained theta list to a file
+        with open('/Users/khs/code/DMUU/task_3/trained_theta_list.pkl', 'wb') as f:
+            pickle.dump(_trained_theta_list, f)
         print("VFA training complete!")
     
     state = {
@@ -444,21 +440,3 @@ def adp_policy_final(
     )
     
     return optimal_action
-
-# # Function to train the VFA offline and save parameters for reuse
-# def initialize_adp_policy(data: Dict[str, Any], num_iterations: int = 25):
-    """
-    Initialize ADP policy by training the VFA parameters offline.
-    
-    Args:
-        data: Problem data dictionary
-        num_iterations: Number of training iterations
-    """
-    global _trained_theta_list
-    
-    print("Training VFA parameters offline...")
-    _trained_theta_list = train_vfa(data, num_iterations=100)
-    print("VFA training complete!")
-    
-    # Return the trained parameters if needed
-    return _trained_theta_list
