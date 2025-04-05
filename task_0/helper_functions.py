@@ -24,11 +24,11 @@ def generate_trajectories(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]
     wind_trajectory = np.zeros(num_timeslots)
     price_trajectory = np.zeros(num_timeslots)
     
-    # init first two values
-    wind_trajectory[0] = data['target_mean_wind']
-    wind_trajectory[1] = data['target_mean_wind']
-    price_trajectory[0] = data['mean_price']
-    price_trajectory[1] = data['mean_price']
+    # init first two values given from professor
+    wind_trajectory[0] = 4
+    wind_trajectory[1] = 5
+    price_trajectory[0] = 28
+    price_trajectory[1] = 30
     
     # Generate trajectories
     for t in range(2, num_timeslots):
