@@ -1,6 +1,9 @@
 # DMUU
 Decision-making under uncertainty
 
+The relevant code is in the folders named after the task. For the execution of the code see ```master.ipynb```
+
+
 # To start using the project, make venv as such:
 ## for mac 
 to make venv:
