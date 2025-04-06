@@ -264,7 +264,7 @@ def generate_state_samples(num_samples: int, data: Dict[str, Any]) -> List[Dict[
 
 def train_vfa(
     data: Dict[str, Any],
-    num_iterations: int = 10,
+    num_iterations: int = 5,
     num_time_steps: int = 24,
     discount_factor: float = 0.95,
     num_state_samples: int = 100,
@@ -408,8 +408,12 @@ def adp_policy_final(
     """
     ADP policy using value function approximation.
     """
+
     global _trained_theta_list
-    
+    # import pickle
+    # # Load the content of the file
+    # with open('/Users/khs/code/DMUU/task_3/trained_theta_list.pkl', 'rb') as f:
+    #     _trained_theta_list = pickle.load(f)
     # Check if we've already trained the value function approximation
     if '_trained_theta_list' not in globals():
         print("Training VFA parameters (first run)...")

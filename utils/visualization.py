@@ -234,7 +234,6 @@ def plot_cost_histogram(
 #     plt.tight_layout()
 #     plt.show()
 
-# Following is the updated version of the compare_policies function claude.ai is used
 def compare_policies(
     policy_results: Dict[str, Dict[str, Any]],
     bucket_ranges: List[tuple] = None,
@@ -284,7 +283,7 @@ def compare_policies(
             bucket_ranges = []
             
         if max_val > 1000:
-            bucket_ranges.extend([(100, 300), (300, 500), (500, 700), (700, 900), (900,1100),(1100, max_val)])
+            bucket_ranges.extend([(100, 300), (300, 500), (500, 750), (750, 1000), (1000, max_val)])
         else:
             # Adjust buckets if max is less than 1000
             remaining = max_val - max(min_val, 100)
@@ -313,8 +312,8 @@ def compare_policies(
             ax=ax, 
             color=colors[i], 
             edgecolor='black',
-            alpha=0.7#,
-            #kde=True  # Add density curve
+            alpha=0.7,
+            kde=True  # Add density curve
         )
         
         # Add mean line
